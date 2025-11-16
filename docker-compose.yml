@@ -1,0 +1,74 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgis/postgis:17-3.5
+    container_name: seismo_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-seismo123}
+      POSTGRES_DB: ${POSTGRES_DB:-seismo_sphere}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d seismo_sphere"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - seismo-network
+
+  airflow:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    container_name: seismo_airflow
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-seismo123}@postgres/airflow_metadata
+      - AIRFLOW__CORE__FERNET_KEY=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+      - AIRFLOW__WEBSERVER__SECRET_KEY=your-secret-key-here
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-seismo123}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/operators:/opt/airflow/operators
+      - ./data:/opt/airflow/data
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "
+      echo 'Waiting for PostgreSQL...' &&
+      sleep 10 &&
+      echo 'Creating airflow_metadata database...' &&
+      PGPASSWORD=$POSTGRES_PASSWORD psql -h postgres -U $POSTGRES_USER -d seismo_sphere -c 'CREATE DATABASE airflow_metadata;' 2>/dev/null || echo 'Database airflow_metadata already exists' &&
+      echo 'Enabling PostGIS extensions...' &&
+      PGPASSWORD=$POSTGRES_PASSWORD psql -h postgres -U $POSTGRES_USER -d seismo_sphere -c 'CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS postgis_topology;' &&
+      echo 'Initializing Airflow...' &&
+      airflow db init &&
+      airflow users create --username ${AIRFLOW_USERNAME:-admin} --password ${AIRFLOW_PASSWORD:-admin} --firstname Admin --lastname User --role Admin --email admin@example.com 2>/dev/null || echo 'User already exists' &&
+      echo 'Starting Airflow services...' &&
+      airflow webserver & airflow scheduler
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    networks:
+      - seismo-network
+
+volumes:
+  postgres-db-volume:
+
+networks:
+  seismo-network:
+    driver: bridge
