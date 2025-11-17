@@ -39,26 +39,16 @@ services:
       - POSTGRES_HOST=postgres
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-seismo123}
+      - AIRFLOW_USERNAME=${AIRFLOW_USERNAME:-admin}
+      - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD:-admin}
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/operators:/opt/airflow/operators
+      - ./airflow/init-airflow.sh:/opt/airflow/init-airflow.sh:ro
       - ./data:/opt/airflow/data
     ports:
       - "8080:8080"
-    command: >
-      bash -c "
-      echo 'Waiting for PostgreSQL...' &&
-      sleep 10 &&
-      echo 'Creating airflow_metadata database...' &&
-      PGPASSWORD=$POSTGRES_PASSWORD psql -h postgres -U $POSTGRES_USER -d seismo_sphere -c 'CREATE DATABASE airflow_metadata;' 2>/dev/null || echo 'Database airflow_metadata already exists' &&
-      echo 'Enabling PostGIS extensions...' &&
-      PGPASSWORD=$POSTGRES_PASSWORD psql -h postgres -U $POSTGRES_USER -d seismo_sphere -c 'CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS postgis_topology;' &&
-      echo 'Initializing Airflow...' &&
-      airflow db init &&
-      airflow users create --username ${AIRFLOW_USERNAME:-admin} --password ${AIRFLOW_PASSWORD:-admin} --firstname Admin --lastname User --role Admin --email admin@example.com 2>/dev/null || echo 'User already exists' &&
-      echo 'Starting Airflow services...' &&
-      airflow webserver & airflow scheduler
-      "
+    command: bash /opt/airflow/init-airflow.sh
     depends_on:
       postgres:
         condition: service_healthy

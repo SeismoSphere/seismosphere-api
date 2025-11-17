@@ -1,0 +1,37 @@
+2025-11-17 13:32:40.474 | 
+2025-11-17 13:32:40.510 | 🚀 Initializing Airflow...
+2025-11-17 13:32:40.511 | ⏳ Waiting for PostgreSQL to be ready...
+2025-11-17 13:32:41.351 | ✅ PostgreSQL is ready!
+2025-11-17 13:32:41.351 | 📦 Checking if airflow_metadata database exists...
+2025-11-17 13:32:42.319 | ℹ️  airflow_metadata database already exists.
+2025-11-17 13:32:42.319 | 🗺️  Enabling PostGIS extensions on seismo_sphere...
+2025-11-17 13:32:43.472 | 🗺️  Enabling PostGIS extensions on seismo_sphere...
+2025-11-17 13:32:44.456 | 🔄 Running database initialization/migration...
+2025-11-17 13:33:19.629 | 👤 Creating default admin user...
+2025-11-17 13:34:02.902 | 
+2025-11-17 13:34:02.902 | ✅ Airflow initialization complete!
+2025-11-17 13:34:02.902 | 
+2025-11-17 13:34:02.902 | 🌐 Webserver: http://localhost:8080
+2025-11-17 13:34:02.902 | 👤 Username: admin
+2025-11-17 13:34:02.902 | 🔑 Password: admin
+2025-11-17 13:34:02.902 | 
+2025-11-17 13:34:02.902 | 🌐 Starting Airflow Webserver...
+2025-11-17 13:34:02.909 | ⏰ Starting Airflow Scheduler...
+2025-11-17 13:34:35.276 |   ____________       _____________
+2025-11-17 13:34:35.276 |  ____    |__( )_________  __/__  /________      __
+2025-11-17 13:34:35.276 | ____  /| |_  /__  ___/_  /_ __  /_  __ \_ | /| / /
+2025-11-17 13:34:35.276 | ___  ___ |  / _  /   _  __/ _  / / /_/ /_ |/ |/ /
+2025-11-17 13:34:35.276 |  _/_/  |_/_/  /_/    /_/    /_/  \____/____/|__/
+2025-11-17 13:34:35.276 | [2025-11-17T06:34:35.254+0000] {task_context_logger.py:63} INFO - Task context logging is enabled
+2025-11-17 13:34:35.284 | [2025-11-17T06:34:35.268+0000] {executor_loader.py:115} INFO - Loaded executor: LocalExecutor
+2025-11-17 13:34:36.063 | [2025-11-17 06:34:36 +0000] [37] [INFO] Starting gunicorn 21.2.0
+2025-11-17 13:34:36.147 | [2025-11-17 06:34:36 +0000] [37] [INFO] Listening at: http://[::]:8793 (37)
+2025-11-17 13:34:36.147 | [2025-11-17 06:34:36 +0000] [37] [INFO] Using worker: sync
+2025-11-17 13:34:36.242 | [2025-11-17T06:34:36.214+0000] {scheduler_job_runner.py:808} INFO - Starting the scheduler
+2025-11-17 13:34:36.269 | [2025-11-17T06:34:36.233+0000] {scheduler_job_runner.py:815} INFO - Processing each file at most -1 times
+2025-11-17 13:34:36.509 | [2025-11-17 06:34:36 +0000] [38] [INFO] Booting worker with pid: 38
+2025-11-17 13:34:36.661 | [2025-11-17 06:34:36 +0000] [39] [INFO] Booting worker with pid: 39
+2025-11-17 13:34:40.671 | [2025-11-17T06:34:40.635+0000] {manager.py:169} INFO - Launched DagFileProcessorManager with pid: 143
+2025-11-17 13:34:40.677 | [2025-11-17T06:34:40.675+0000] {scheduler_job_runner.py:1619} INFO - Adopting or resetting orphaned tasks for active dag runs
+2025-11-17 13:34:42.393 | [2025-11-17T06:34:42.348+0000] {settings.py:61} INFO - Configured default timezone Timezone('UTC')
+2025-11-17 13:39:44.030 | [2025-11-17T06:39:44.025+0000] {scheduler_job_runner.py:1619} INFO - Adopting or resetting orphaned tasks for active dag runs
