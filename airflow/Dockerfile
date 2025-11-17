@@ -15,5 +15,12 @@ COPY requirements.txt /requirements.txt
 RUN pip install --no-cache-dir -r /requirements.txt
 
 COPY operators /opt/airflow/operators
+COPY init-airflow.sh /opt/airflow/init-airflow.sh
+
+USER root
+RUN chmod +x /opt/airflow/init-airflow.sh
+USER airflow
 
 ENV PYTHONPATH="${PYTHONPATH}:/opt/airflow"
+
+ENTRYPOINT ["/opt/airflow/init-airflow.sh"]
