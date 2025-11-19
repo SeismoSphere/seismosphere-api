@@ -23,6 +23,27 @@ services:
     networks:
       - seismo-network
 
+  minio:
+    image: minio/minio:latest
+    container_name: seismo_minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - seismo-network
+
   airflow:
     build:
       context: ./airflow
@@ -41,6 +62,10 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-seismo123}
       - AIRFLOW_USERNAME=${AIRFLOW_USERNAME:-admin}
       - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD:-admin}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin123}
+      - MINIO_CONSOLE_URL=http://localhost:9003
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/operators:/opt/airflow/operators
@@ -52,12 +77,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     restart: always
     networks:
       - seismo-network
 
 volumes:
   postgres-db-volume:
+  minio-data:
 
 networks:
   seismo-network:
