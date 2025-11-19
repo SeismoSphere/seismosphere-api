@@ -1,4 +1,4 @@
-import polars as pl
+﻿import polars as pl
 import requests
 import logging
 from datetime import datetime, timedelta
@@ -29,10 +29,10 @@ class PolarsEarthquakeIngestor:
         self.region = region
         self.base_url = "https://earthquake.usgs.gov/fdsnws/event/1/query"
         
-        logger.info(f"🚀 Polars Earthquake Ingestor initialized")
-        logger.info(f"📁 Output directory: {self.output_dir}")
-        logger.info(f"🌏 Region: {region.upper()}")
-        logger.info(f"📊 Min magnitude: {min_magnitude}")
+        logger.info(f"Polars Earthquake Ingestor initialized")
+        logger.info(f"Output directory: {self.output_dir}")
+        logger.info(f"Region: {region.upper()}")
+        logger.info(f"Min magnitude: {min_magnitude}")
     
     def fetch_data_batch(
         self,
@@ -53,21 +53,21 @@ class PolarsEarthquakeIngestor:
             params.update(self.ASIA_BOUNDS)
         
         try:
-            logger.info(f"📥 Fetching: {start_date.date()} to {end_date.date()}")
+            logger.info(f"Fetching: {start_date.date()} to {end_date.date()}")
             response = requests.get(self.base_url, params=params, timeout=60)
             response.raise_for_status()
             
             data = response.json()
             count = len(data.get('features', []))
-            logger.info(f"✅ Received: {count} earthquakes")
+            logger.info(f"Received: {count} earthquakes")
             
             return data
             
         except requests.exceptions.RequestException as e:
-            logger.error(f"❌ Error fetching data: {e}")
+            logger.error(f"Error fetching data: {e}")
             return None
         except Exception as e:
-            logger.error(f"❌ Unexpected error: {e}")
+            logger.error(f"Unexpected error: {e}")
             return None
     
     def geojson_to_polars(self, geojson_data: Dict) -> pl.DataFrame:
@@ -148,11 +148,11 @@ class PolarsEarthquakeIngestor:
         batch_days: int = 30
     ) -> pl.DataFrame:
         logger.info("="*70)
-        logger.info("🌍 BATCH DATA INGESTION - POLARS")
+        logger.info("BATCH DATA INGESTION - POLARS")
         logger.info("="*70)
-        logger.info(f"📅 Date Range: {start_date.date()} to {end_date.date()}")
-        logger.info(f"📊 Batch Size: {batch_days} days")
-        logger.info(f"🌏 Region: {self.region.upper()}")
+        logger.info(f"Date Range: {start_date.date()} to {end_date.date()}")
+        logger.info(f"Batch Size: {batch_days} days")
+        logger.info(f"Region: {self.region.upper()}")
         logger.info("="*70)
         
         all_dataframes = []
@@ -164,8 +164,8 @@ class PolarsEarthquakeIngestor:
             batch_count += 1
             batch_end = min(current_date + timedelta(days=batch_days), end_date)
             
-            logger.info(f"\n📦 Batch #{batch_count}")
-            logger.info(f"   Period: {current_date.date()} to {batch_end.date()}")
+            logger.info(f"\nBatch #{batch_count}")
+            logger.info(f"Period: {current_date.date()} to {batch_end.date()}")
             
             geojson_data = self.fetch_data_batch(current_date, batch_end)
             
@@ -175,26 +175,26 @@ class PolarsEarthquakeIngestor:
                 if len(df) > 0:
                     all_dataframes.append(df)
                     total_records += len(df)
-                    logger.info(f"   ✅ Batch records: {len(df)}")
-                    logger.info(f"   📈 Total so far: {total_records}")
+                    logger.info(f"   Batch records: {len(df)}")
+                    logger.info(f"   Total so far: {total_records}")
                 else:
-                    logger.warning(f"   ⚠️  No valid records in this batch")
+                    logger.warning(f"   No valid records in this batch")
             else:
-                logger.warning(f"   ⚠️  Failed to fetch batch")
+                logger.warning(f"   Failed to fetch batch")
             
             current_date = batch_end
             time.sleep(1)
         
-        logger.info(f"\n🔗 Combining {len(all_dataframes)} batches...")
+        logger.info(f"\nCombining {len(all_dataframes)} batches...")
         
         if not all_dataframes:
-            logger.error("❌ No data collected!")
+            logger.error("No data collected!")
             return pl.DataFrame()
         
         combined_df = pl.concat(all_dataframes)
         combined_df = combined_df.unique(subset=['id'], keep='first')
         
-        logger.info(f"✅ Total unique records: {len(combined_df)}")
+        logger.info(f"Total unique records: {len(combined_df)}")
         
         return combined_df
     
@@ -202,7 +202,17 @@ class PolarsEarthquakeIngestor:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=365)
         
-        logger.info("📅 Ingesting LAST 1 YEAR of earthquake data")
+        logger.info("Ingesting LAST 1 YEAR of earthquake data")
+        logger.info(f"   From: {start_date.date()}")
+        logger.info(f"   To: {end_date.date()}")
+        
+        return self.ingest_date_range(start_date, end_date, batch_days=30)
+    
+    def ingest_last_2_years(self) -> pl.DataFrame:
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=730)  # 2 years
+        
+        logger.info("Ingesting LAST 2 YEARS of earthquake data")
         logger.info(f"   From: {start_date.date()}")
         logger.info(f"   To: {end_date.date()}")
         
@@ -212,7 +222,7 @@ class PolarsEarthquakeIngestor:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=30)
         
-        logger.info("📅 Ingesting LAST 30 DAYS of earthquake data")
+        logger.info("Ingesting LAST 30 DAYS of earthquake data")
         logger.info(f"   From: {start_date.date()}")
         logger.info(f"   To: {end_date.date()}")
         
@@ -226,7 +236,7 @@ class PolarsEarthquakeIngestor:
     ) -> Path:
         output_path = self.output_dir / filename
         
-        logger.info(f"\n💾 Saving to Parquet...")
+        logger.info(f"\nSaving to Parquet...")
         logger.info(f"   File: {output_path}")
         logger.info(f"   Compression: {compression}")
         
@@ -239,8 +249,8 @@ class PolarsEarthquakeIngestor:
         
         file_size_mb = output_path.stat().st_size / (1024 * 1024)
         
-        logger.info(f"   ✅ Saved: {file_size_mb:.2f} MB")
-        logger.info(f"   📊 Records: {len(df):,}")
+        logger.info(f"   Saved: {file_size_mb:.2f} MB")
+        logger.info(f"   Records: {len(df):,}")
         
         return output_path
     
@@ -251,7 +261,7 @@ class PolarsEarthquakeIngestor:
     ) -> Path:
         output_path = self.output_dir / filename
         
-        logger.info(f"\n💾 Saving to CSV...")
+        logger.info(f"\nSaving to CSV...")
         logger.info(f"   File: {output_path}")
         
         df_export = df.with_columns([
@@ -263,7 +273,7 @@ class PolarsEarthquakeIngestor:
         df_export.write_csv(output_path)
         
         file_size_mb = output_path.stat().st_size / (1024 * 1024)
-        logger.info(f"   ✅ Saved: {file_size_mb:.2f} MB")
+        logger.info(f"   âœ… Saved: {file_size_mb:.2f} MB")
         
         return output_path
     

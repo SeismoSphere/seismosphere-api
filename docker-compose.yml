@@ -1,4 +1,4 @@
-version: "3.8"
+version: "3.9"
 
 services:
   postgres:
@@ -44,11 +44,11 @@ services:
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/operators:/opt/airflow/operators
-      - ./airflow/init-airflow.sh:/opt/airflow/init-airflow.sh:ro
       - ./data:/opt/airflow/data
     ports:
       - "8080:8080"
-    command: bash /opt/airflow/init-airflow.sh
+    entrypoint: ["/bin/bash"]
+    command: ["/usr/local/bin/init-airflow.sh"]
     depends_on:
       postgres:
         condition: service_healthy
