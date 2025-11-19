@@ -6,8 +6,10 @@ SeismoSphere API is the primary backend service that handles the entire process 
 
 - **Orchestration**: Apache Airflow 2.9.3 (LocalExecutor)
 - **Database**: PostgreSQL 17 + PostGIS 3.5 (Spatial data support)
+- **Object Storage**: MinIO (S3-compatible storage)
 - **Data Processing**: Polars LTS CPU 1.33+ (High-performance DataFrames)
-- **Storage**: Parquet (Snappy compression)
+- **ML Libraries**: scikit-learn 1.3+ (Spatial calculations), NumPy, SciPy
+- **Storage**: Parquet (Snappy compression) + MinIO buckets
 - **Container**: Docker + Docker Compose 3.9
 
 ## 📂 **Project Structure**
@@ -80,36 +82,9 @@ seismosphere-api/
 
 6. **Access services:**
 
-   - Airflow UI: http://localhost:8080
-   - Default credentials: `admin` / `admin`
-
-## 📊 **Data Pipeline**
-
-### Pipeline Workflow
-
-```
-USGS API → Raw Ingestion (2 years) → Preprocessing → PostgreSQL + Parquet
-```
-
-### DAG: `master_earthquake_pipeline`
-
-1. **Task 1: `ingest_raw_data`**
-
-   - Fetches 2 years of earthquake data from USGS
-   - Region: Asia (Lat: -10 to 55, Lon: 60 to 150)
-   - Batch size: 30 days per request
-   - Output: `data/bigdata/raw_earthquakes.parquet`
-
-2. **Task 2: `preprocess_and_load`**
-   - Cleaning: Removes records with null/None place
-   - Reduction: Deduplicates by ID, sorts by datetime
-   - Output: `data/bigdata/processed_earthquakes.parquet`
-   - PostgreSQL: Inserts to `earthquakes` table with PostGIS geometry
-
-### Schedule
-
-- **Cron**: `0 5 1 1 *` (Yearly on Jan 1 at 5 AM UTC)
-- **Manual**: Trigger via Airflow UI
+   - **Airflow UI**: http://localhost:8080 (admin/admin)
+   - **MinIO Console**: http://localhost:9003 (minioadmin/minioadmin123)
+   - **PostgreSQL**: localhost:5432 (postgres/seismo123)
 
 ## 🔧 **Development Commands**
 
@@ -122,11 +97,12 @@ docker-compose up --build -d
 # View logs
 docker logs seismo_airflow --tail 50
 docker logs seismo_postgres --tail 50
+docker logs seismo_minio --tail 50
 
 # Stop services
 docker-compose down
 
-# Clean restart (removes volumes)
+# Clean restart (removes all volumes and data)
 docker-compose down -v
 docker-compose up --build -d
 ```
