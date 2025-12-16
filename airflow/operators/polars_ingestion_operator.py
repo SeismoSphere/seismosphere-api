@@ -281,6 +281,10 @@ class PolarsEarthquakeIngestor:
         if len(df) == 0:
             return {'error': 'No data available'}
         
+        # Get min and max magnitude records
+        min_mag_record = df.filter(pl.col('magnitude') == df['magnitude'].min()).row(0, named=True)
+        max_mag_record = df.filter(pl.col('magnitude') == df['magnitude'].max()).row(0, named=True)
+        
         summary = {
             'total_records': len(df),
             'unique_earthquakes': df['id'].n_unique(),
@@ -292,7 +296,9 @@ class PolarsEarthquakeIngestor:
                 'min': float(df['magnitude'].min()),
                 'max': float(df['magnitude'].max()),
                 'mean': float(df['magnitude'].mean()),
-                'median': float(df['magnitude'].median())
+                'median': float(df['magnitude'].median()),
+                'min_location': min_mag_record.get('place', 'Unknown'),
+                'max_location': max_mag_record.get('place', 'Unknown')
             },
             'depth': {
                 'min': float(df['depth'].min()),

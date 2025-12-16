@@ -52,6 +52,8 @@ def ingest_2years_data(**context):
     print(f"Date Range: {summary['date_range']['start']} to {summary['date_range']['end']}")
     print(f"Magnitude: {summary['magnitude']['min']:.1f} - {summary['magnitude']['max']:.1f}")
     print(f"   Mean: {summary['magnitude']['mean']:.2f}, Median: {summary['magnitude']['median']:.2f}")
+    print(f"   Min Magnitude ({summary['magnitude']['min']:.1f}): {summary['magnitude']['min_location']}")
+    print(f"   Max Magnitude ({summary['magnitude']['max']:.1f}): {summary['magnitude']['max_location']}")
     print(f"Depth: {summary['depth']['min']:.1f} - {summary['depth']['max']:.1f} km")
     print(f"   Mean: {summary['depth']['mean']:.2f} km")
     print(f"Output: {parquet_path}")
