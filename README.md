@@ -1,8 +1,8 @@
-# 🚀 SeismoSphere API - ML Backend Logic
+# SeismoSphere API - ML Backend Logic
 
 SeismoSphere API is the primary backend service that handles the entire process of earthquake data capture, preprocessing (ETL), spatial analysis, and providing machine learning modeling results for the SeismicSphere application. This backend is designed as the system's foundation for managing and executing earthquake analytics pipelines in an automated, structured, and integrated manner with other components.
 
-## 📋 **Tech Stack**
+## **Tech Stack**
 
 - **Orchestration**: Apache Airflow 2.9.3 (LocalExecutor)
 - **Database**: PostgreSQL 17 + PostGIS 3.5 (Spatial data support)
@@ -12,7 +12,7 @@ SeismoSphere API is the primary backend service that handles the entire process 
 - **Storage**: Parquet (Snappy compression) + MinIO buckets
 - **Container**: Docker + Docker Compose 3.9
 
-## 📂 **Project Structure**
+## **Project Structure**
 
 ```
 seismosphere-api/
@@ -33,7 +33,7 @@ seismosphere-api/
 └── README.md                        # This file
 ```
 
-## 🚀 **Quick Start**
+## **Quick Start**
 
 1. **Clone Repository**
 
@@ -54,7 +54,7 @@ seismosphere-api/
    docker-compose up --build -d
    ```
 
-   **📊 Database akan otomatis dibuat:**
+   **Database akan otomatis dibuat:**
 
    - `airflow_metadata` - Airflow internal database
    - `seismo_sphere` - Application database with PostGIS
@@ -77,8 +77,8 @@ seismosphere-api/
 
    Expected:
 
-   - ✅ `seismo_postgres` - Up (healthy)
-   - ✅ `seismo_airflow` - Up (port 8080)
+   - `seismo_postgres` - Up (healthy)
+   - `seismo_airflow` - Up (port 8080)
 
 6. **Access services:**
 
@@ -86,7 +86,7 @@ seismosphere-api/
    - **MinIO Console**: http://localhost:9003 (minioadmin/minioadmin123)
    - **PostgreSQL**: localhost:5432 (postgres/seismo123)
 
-## 🔧 **Development Commands**
+## **Development Commands**
 
 ### Docker Management
 
