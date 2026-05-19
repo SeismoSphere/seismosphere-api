@@ -7,6 +7,8 @@ import sys
 sys.path.insert(0, '/opt/airflow/operators')
 from polars_ingestion_operator import PolarsEarthquakeIngestor
 from polars_preprocessing_operator import preprocess_earthquakes
+from hdbscan_clustering_operator import run_earthquake_clustering
+# from hdbscan_visualization_operator import run_visualization_task
 
 default_args = {
     'owner': 'seismosphere',
@@ -70,10 +72,10 @@ def ingest_2years_data(**context):
 with DAG(
     'master_earthquake_pipeline',
     default_args=default_args,
-    description='Earthquake data pipeline: Ingestion (2 years) + Preprocessing + PostgreSQL',
+    description='Earthquake data pipeline: Ingestion (2 years) + Preprocessing + Clustering + PostgreSQL',
     schedule_interval='0 5 1 1 *',
     catchup=False,
-    tags=['earthquake', 'ingestion', 'preprocessing', 'postgres'],
+    tags=['earthquake', 'ingestion', 'preprocessing', 'clustering', 'postgres'],
 ) as dag:
     
     task_ingestion = PythonOperator(
@@ -87,5 +89,17 @@ with DAG(
         python_callable=preprocess_earthquakes,
         provide_context=True
     )
+    
+    task_clustering = PythonOperator(
+        task_id='earthquake_clustering',
+        python_callable=run_earthquake_clustering,
+        provide_context=True
+    )
 
-    task_ingestion >> task_preprocessing
+    # task_visualization = PythonOperator(
+    #     task_id='cluster_visualization',
+    #     python_callable=run_visualization_task,
+    #     provide_context=True
+    # )
+
+    task_ingestion >> task_preprocessing >> task_clustering
