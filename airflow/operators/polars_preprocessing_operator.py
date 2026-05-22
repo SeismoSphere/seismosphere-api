@@ -141,8 +141,8 @@ class PolarsEarthquakePreprocessor:
             df_reduced = df.unique(subset=['id'], keep='first')
             logger.info(f"   Removed {initial_count - len(df_reduced):,} duplicate IDs")
             
-            df_reduced = df_reduced.sort('datetime', descending=True)
-            logger.info(f"   Sorted by datetime (newest first)")
+            df_reduced = df_reduced.sort('magnitude', descending=True)
+            logger.info(f"   Sorted by magnitude (highest to lowest)")
             
             logger.info(f"Reduced data: {len(df_reduced):,} unique records")
             return df_reduced
