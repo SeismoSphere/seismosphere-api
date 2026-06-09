@@ -71,7 +71,6 @@ class PolarsEarthquakeIngestor:
             return None
     
     def geojson_to_polars(self, geojson_data: Dict) -> pl.DataFrame:
-        """Convert GeoJSON data ke Polars DataFrame"""
         features = geojson_data.get('features', [])
         
         if not features:
@@ -281,7 +280,6 @@ class PolarsEarthquakeIngestor:
         if len(df) == 0:
             return {'error': 'No data available'}
         
-        # Get min and max magnitude records
         min_mag_record = df.filter(pl.col('magnitude') == df['magnitude'].min()).row(0, named=True)
         max_mag_record = df.filter(pl.col('magnitude') == df['magnitude'].max()).row(0, named=True)
         

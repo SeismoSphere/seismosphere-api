@@ -55,7 +55,6 @@ class PolarsEarthquakePreprocessor:
         logger.info(f"  MinIO: {minio_endpoint}/{minio_bucket}")
     
     def _ensure_minio_bucket(self):
-        """Ensure MinIO bucket exists"""
         try:
             if not self.minio_client.bucket_exists(self.minio_bucket):
                 self.minio_client.make_bucket(self.minio_bucket)
@@ -84,14 +83,12 @@ class PolarsEarthquakePreprocessor:
             initial_count = len(df)
             logger.info(f"Starting data cleaning on {initial_count:,} records")
             
-            # Count problematic place values BEFORE cleaning
             none_string_before = df.filter(pl.col('place') == 'None').height
             null_place_before = df.filter(pl.col('place').is_null()).height
             
             logger.info(f"   Found {none_string_before} records with place='None' (string)")
             logger.info(f"   Found {null_place_before} records with place=NULL")
             
-            # Remove rows with missing critical fields only
             df_cleaned = df.filter(
                 pl.col('latitude').is_not_null() &
                 pl.col('longitude').is_not_null() &
@@ -103,7 +100,6 @@ class PolarsEarthquakePreprocessor:
             if removed_count > 0:
                 logger.info(f"   Removed {removed_count:,} rows with null coordinates/magnitude/time")
             
-            # Replace 'None' string and NULL place with 'Unknown Location'
             df_cleaned = df_cleaned.with_columns(
                 pl.when(pl.col('place').is_null() | (pl.col('place') == 'None'))
                 .then(pl.lit('Unknown Location'))
@@ -111,7 +107,6 @@ class PolarsEarthquakePreprocessor:
                 .alias('place')
             )
             
-            # Verify replacement
             none_string_after = df_cleaned.filter(pl.col('place') == 'None').height
             null_place_after = df_cleaned.filter(pl.col('place').is_null()).height
             unknown_loc_count = df_cleaned.filter(pl.col('place') == 'Unknown Location').height
@@ -151,37 +146,25 @@ class PolarsEarthquakePreprocessor:
             raise
     
     def add_spatial_features(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        Add spatial preprocessing features for ML models:
-        - Distance to nearest earthquake
-        - Earthquake density (events per 100km radius)
-        - Seismic zone classification
-        - Spatial grid cell ID
-        """
         try:
             logger.info("Starting spatial preprocessing")
             initial_count = len(df)
             
-            # Convert to numpy for spatial calculations
             coords = df.select(['latitude', 'longitude']).to_numpy()
             
-            # 1. Calculate distance to nearest earthquake (km)
             logger.info("   Calculating nearest neighbor distances...")
             nbrs = NearestNeighbors(n_neighbors=2, algorithm='ball_tree', metric='haversine')
             nbrs.fit(np.radians(coords))
             distances, indices = nbrs.kneighbors(np.radians(coords))
             
-            # Convert from radians to km (Earth radius = 6371 km)
             nearest_distance_km = distances[:, 1] * 6371.0
             
-            # 2. Calculate earthquake density (events within 100km radius)
             logger.info("   Calculating earthquake density...")
             radius_km = 100.0
             radius_rad = radius_km / 6371.0
             density_counts = nbrs.radius_neighbors(np.radians(coords), radius=radius_rad, return_distance=False)
             event_density = np.array([len(neighbors) - 1 for neighbors in density_counts])  # -1 to exclude self
             
-            # 3. Seismic zone classification based on lat/lon
             logger.info("   Classifying seismic zones...")
             def classify_zone(lat: float, lon: float) -> str:
                 """Classify earthquake location into seismic zones"""
@@ -211,19 +194,15 @@ class PolarsEarthquakePreprocessor:
             
             zones = [classify_zone(row[0], row[1]) for row in coords]
             
-            # 4. Spatial grid cell (1 degree x 1 degree grid)
             logger.info("   Assigning spatial grid cells...")
             grid_lat = np.floor(coords[:, 0]).astype(int)
             grid_lon = np.floor(coords[:, 1]).astype(int)
             grid_cell_id = [f"GRID_{lat}_{lon}" for lat, lon in zip(grid_lat, grid_lon)]
             
-            # 5. Calculate regional centroid distance
             logger.info("   Calculating distance to regional centroid...")
-            # Asia region centroid (approximate)
             asia_centroid = np.array([22.5, 105.0])  # Lat, Lon
             
             def haversine_distance(lat1, lon1, lat2, lon2):
-                """Calculate distance between two points on Earth (km)"""
                 lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
                 dlat = lat2 - lat1
                 dlon = lon2 - lon1
@@ -236,7 +215,6 @@ class PolarsEarthquakePreprocessor:
                 asia_centroid[0], asia_centroid[1]
             )
             
-            # Add all spatial features to dataframe
             df_spatial = df.with_columns([
                 pl.Series("nearest_event_km", nearest_distance_km),
                 pl.Series("event_density_100km", event_density),
@@ -245,13 +223,11 @@ class PolarsEarthquakePreprocessor:
                 pl.Series("centroid_distance_km", centroid_distance)
             ])
             
-            # Add risk score (simple heuristic based on density and magnitude)
             df_spatial = df_spatial.with_columns(
                 ((pl.col("event_density_100km") / 100.0) * 0.4 + 
                  (pl.col("magnitude") / 10.0) * 0.6).alias("spatial_risk_score")
             )
             
-            # Count unique grid cells
             unique_grids = len(df_spatial['grid_cell_id'].unique())
             
             logger.info(f"Spatial features added successfully:")
@@ -286,19 +262,15 @@ class PolarsEarthquakePreprocessor:
             return False
     
     def save_to_minio(self, df: pl.DataFrame) -> bool:
-        """Save processed data to MinIO object storage (overwrites existing file)"""
         try:
             logger.info(f"Uploading processed data to MinIO...")
             
-            # Convert DataFrame to parquet bytes
             buffer = io.BytesIO()
             df.write_parquet(buffer, compression='snappy')
             buffer.seek(0)
             
-            # Only save as latest.parquet (will overwrite on each run)
             object_name = "processed_earthquakes_latest.parquet"
             
-            # Upload to MinIO (overwrites existing file)
             self.minio_client.put_object(
                 bucket_name=self.minio_bucket,
                 object_name=object_name,
