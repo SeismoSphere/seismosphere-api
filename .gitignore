@@ -23,5 +23,3 @@ data/bigdata/*.csv
 
 .DS_Store
 Thumbs.db
-
-airflow/operators/hdbscan_visualization_operator.py

@@ -9,7 +9,7 @@ from polars_ingestion_operator import PolarsEarthquakeIngestor
 from polars_preprocessing_operator import preprocess_earthquakes
 from hdbscan_clustering_operator import run_earthquake_clustering
 from hdbscan_visualization_operator import run_visualization_task
-from hdbscan_classification_operator import run_classification_task
+from classification_operator import run_classification_task
 
 default_args = {
     'owner': 'seismosphere',
