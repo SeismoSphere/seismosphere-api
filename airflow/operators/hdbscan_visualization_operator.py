@@ -527,6 +527,105 @@ class ClusteringVisualizer:
         except Exception as e:
             logger.error(f"Error creating HDBSCAN folium map: {e}")
             return None
+
+    def create_risk_profiling_summary_figure(self) -> Path:
+        if self.hdbscan_data is None or len(self.hdbscan_data) == 0:
+            logger.warning("No HDBSCAN data available for risk profiling summary")
+            return None
+
+        try:
+            df = self.hdbscan_data.to_pandas()
+
+            if 'risk_label' not in df.columns:
+                logger.warning("Risk label column not found in HDBSCAN data")
+                return None
+
+            df['risk_label'] = df['risk_label'].fillna('UNKNOWN')
+            risk_order = ['VERY_HIGH', 'HIGH', 'MEDIUM', 'LOW']
+            label_colors = {
+                'VERY_HIGH': '#7f0000',
+                'HIGH': '#d94801',
+                'MEDIUM': '#fdae6b',
+                'LOW': '#31a354',
+                'UNKNOWN': '#636363'
+            }
+
+            total_records = len(df)
+            risk_counts = {label: int((df['risk_label'] == label).sum()) for label in risk_order}
+            unknown_count = int((df['risk_label'] == 'UNKNOWN').sum())
+            if unknown_count > 0:
+                risk_counts['UNKNOWN'] = unknown_count
+
+            risk_percentages = {
+                label: (count / total_records * 100) if total_records else 0.0
+                for label, count in risk_counts.items()
+            }
+
+            fig, ax_bar = plt.subplots(figsize=(12, 8), dpi=self.DPI)
+            fig.patch.set_facecolor('white')
+            ax_bar.set_facecolor('white')
+
+            ordered_counts = [risk_counts.get(label, 0) for label in risk_order]
+            ordered_percentages = [risk_percentages.get(label, 0.0) for label in risk_order]
+            bars = ax_bar.bar(
+                risk_order,
+                ordered_counts,
+                color=[label_colors[label] for label in risk_order],
+                edgecolor='#2b2b2b',
+                linewidth=1.0
+            )
+
+            for bar, count, percentage in zip(bars, ordered_counts, ordered_percentages):
+                ax_bar.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + max(ordered_counts) * 0.02 if ordered_counts else 0.5,
+                    f'{count}\n({percentage:.1f}%)',
+                    ha='center',
+                    va='bottom',
+                    fontsize=11,
+                    fontweight='bold'
+                )
+
+            ax_bar.set_title('Distribusi Label Risiko', fontsize=self.FONT_SIZE + 7, fontweight='bold', pad=16)
+            ax_bar.set_xlabel('Label Risiko', fontsize=self.FONT_SIZE + 2, fontweight='bold')
+            ax_bar.set_ylabel('Jumlah Data', fontsize=self.FONT_SIZE + 2, fontweight='bold')
+            ax_bar.grid(axis='y', alpha=0.25, linestyle='--')
+            ax_bar.spines['top'].set_visible(False)
+            ax_bar.spines['right'].set_visible(False)
+
+            if unknown_count > 0:
+                ax_bar.text(
+                    0.98,
+                    0.95,
+                    f'UNKNOWN: {unknown_count} ({risk_percentages.get("UNKNOWN", 0.0):.1f}%)',
+                    transform=ax_bar.transAxes,
+                    ha='right',
+                    va='top',
+                    fontsize=10,
+                    color='#444444'
+                )
+
+            fig.suptitle(
+                'Distribusi Label Risiko',
+                fontsize=self.FONT_SIZE + 10,
+                fontweight='bold',
+                y=0.98
+            )
+
+            plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+            output_path = self.output_dir / 'risk_profiling_summary.png'
+            plt.savefig(output_path, dpi=self.DPI, bbox_inches='tight')
+            logger.info(f"Risk profiling summary figure saved: {output_path}")
+
+            plt.close()
+            return output_path
+
+        except Exception as e:
+            logger.error(f"Error creating risk profiling summary figure: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
     
     def create_cluster_summary_table(self) -> bool:
         if not self.conn:
@@ -664,6 +763,7 @@ class ClusteringVisualizer:
             'hdbscan_heatmap': None,
             'hdbscan_heatmap_no_noise': None,
             'hdbscan_map': None,
+            'risk_profiling_summary': None,
             'cluster_summaries_created': False,
             'message': ''
         }
@@ -708,6 +808,14 @@ class ClusteringVisualizer:
                 logger.info(f"✓ HDBSCAN map created: {hdbscan_map_path}")
             else:
                 logger.warning("Failed to create HDBSCAN map (continuing...)")
+
+            logger.info("Creating risk profiling summary figure...")
+            risk_profile_path = self.create_risk_profiling_summary_figure()
+            if risk_profile_path:
+                summary['risk_profiling_summary'] = str(risk_profile_path)
+                logger.info(f"✓ Risk profiling summary created: {risk_profile_path}")
+            else:
+                logger.warning("Failed to create risk profiling summary figure")
             
             logger.info("\nCreating cluster summary table...")
             if self.create_cluster_summary_table():
@@ -745,6 +853,7 @@ def run_visualization_task(**context):
         context['ti'].xcom_push(key='hdbscan_heatmap', value=result['hdbscan_heatmap'])
         context['ti'].xcom_push(key='hdbscan_heatmap_no_noise', value=result['hdbscan_heatmap_no_noise'])
         context['ti'].xcom_push(key='hdbscan_map', value=result['hdbscan_map'])
+        context['ti'].xcom_push(key='risk_profiling_summary', value=result['risk_profiling_summary'])
         context['ti'].xcom_push(key='cluster_summaries_created', value=result['cluster_summaries_created'])
         context['ti'].xcom_push(key='visualization_message', value=result['message'])
         
