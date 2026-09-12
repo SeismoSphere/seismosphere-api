@@ -24,7 +24,6 @@ import seaborn as sns
 
 logger = logging.getLogger(__name__)
 
-
 class EarthquakeClusterClassifier:
     POSTGRES_CONFIG = {
         'host': 'postgres',

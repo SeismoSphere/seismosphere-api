@@ -1,0 +1,1 @@
+"""SeismoSphere FastAPI service package."""
