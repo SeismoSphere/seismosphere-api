@@ -13,6 +13,7 @@ from matplotlib.colors import ListedColormap, Normalize
 import seaborn as sns
 import folium
 from folium import plugins
+from folium.plugins import HeatMap
 import contextily as ctx
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,12 @@ class ClusteringVisualizer:
     OUTPUT_DIR = Path('/opt/airflow/data/bigdata')
     DPI = 300
     FONT_SIZE = 10
+    ASIA_BOUNDS = {
+        'min_lat': -10,
+        'max_lat': 55,
+        'min_lon': 60,
+        'max_lon': 150,
+    }
     
     REGION_PATTERNS = {
         'Sumatra': {'lat_range': (-6, 6), 'lon_range': (95, 105)},
@@ -187,7 +194,35 @@ class ClusteringVisualizer:
             colors = plt.cm.get_cmap('hsv')(np.linspace(0, 0.95, n_colors))
         
         return colors
-    
+
+    def _apply_asia_extent(self, ax) -> None:
+        ax.set_xlim(self.ASIA_BOUNDS['min_lon'], self.ASIA_BOUNDS['max_lon'])
+        ax.set_ylim(self.ASIA_BOUNDS['min_lat'], self.ASIA_BOUNDS['max_lat'])
+
+    def _add_basemap(self, ax) -> None:
+        try:
+            ctx.add_basemap(
+                ax,
+                source=ctx.providers.CartoDB.Positron,
+                crs='EPSG:4326',
+                zoom=4,
+                attribution_size=7,
+            )
+            return
+        except Exception as exc:
+            logger.warning(f"CartoDB basemap failed, fallback to OSM: {exc}")
+
+        try:
+            ctx.add_basemap(
+                ax,
+                source=ctx.providers.OpenStreetMap.Mapnik,
+                crs='EPSG:4326',
+                zoom=4,
+                attribution_size=7,
+            )
+        except Exception as exc:
+            logger.warning(f"OSM basemap unavailable, rendering without tiles: {exc}")
+
     def create_heatmap_dbscan(self) -> Path:
         if self.dbscan_data is None or len(self.dbscan_data) == 0:
             logger.warning("No DBSCAN data available")
@@ -202,12 +237,22 @@ class ClusteringVisualizer:
             unique_clusters = sorted(df['cluster_id'].unique())
             n_clusters = len(unique_clusters)
             colors = self._get_distinct_colors(n_clusters)
-            
-            from pyproj import Transformer
-            transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
-            x, y = transformer.transform(df['longitude'].values, df['latitude'].values)
-            df['x_mercator'] = x
-            df['y_mercator'] = y
+
+            heat = ax.hexbin(
+                df['longitude'],
+                df['latitude'],
+                gridsize=60,
+                cmap='YlOrRd',
+                mincnt=1,
+                alpha=0.42,
+                extent=(
+                    self.ASIA_BOUNDS['min_lon'],
+                    self.ASIA_BOUNDS['max_lon'],
+                    self.ASIA_BOUNDS['min_lat'],
+                    self.ASIA_BOUNDS['max_lat'],
+                ),
+                zorder=1,
+            )
             
             for idx, cluster_id in enumerate(unique_clusters):
                 cluster_data = df[df['cluster_id'].astype(int) == int(cluster_id)]
@@ -216,28 +261,34 @@ class ClusteringVisualizer:
                 sizes = (cluster_data['magnitude'] - cluster_data['magnitude'].min() + 1) * 30
                 
                 scatter = ax.scatter(
-                    cluster_data['x_mercator'],
-                    cluster_data['y_mercator'],
+                    cluster_data['longitude'],
+                    cluster_data['latitude'],
                     s=sizes,
                     c=[colors[idx]],
-                    alpha=0.7,
+                    alpha=0.78,
                     edgecolors='black',
-                    linewidth=0.3,
+                    linewidth=0.35,
                     label=cluster_name,
                     zorder=5
                 )
             
-            try:
-                ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, 
-                               attribution_size=8, zorder=1)
-            except Exception as e:
-                logger.warning(f"Could not add map tiles: {e}")
-            
+            self._apply_asia_extent(ax)
+            self._add_basemap(ax)
+            ax.set_facecolor('#dbeafe')
+            ax.grid(True, color='white', linewidth=0.6, alpha=0.55)
             ax.set_xlabel('Longitude', fontsize=self.FONT_SIZE + 2, fontweight='bold')
             ax.set_ylabel('Latitude', fontsize=self.FONT_SIZE + 2, fontweight='bold')
-            ax.set_title('DBSCAN Earthquake Clustering Heatmap - Indonesia\n(Size: Magnitude, Background: OpenStreetMap)', 
-                        fontsize=self.FONT_SIZE + 4, fontweight='bold', pad=20)
-            
+            ax.set_title(
+                'DBSCAN Earthquake Clustering Heatmap - Asia\n'
+                '(Size: Magnitude, Geo Heatmap + Basemap)',
+                fontsize=self.FONT_SIZE + 4,
+                fontweight='bold',
+                pad=20,
+            )
+
+            cbar = plt.colorbar(heat, ax=ax, fraction=0.03, pad=0.02)
+            cbar.set_label('Event density', fontsize=self.FONT_SIZE)
+
             ax.legend(loc='best', fontsize=self.FONT_SIZE, title='Clusters', 
                      title_fontsize=self.FONT_SIZE + 1, framealpha=0.95)
             
@@ -245,7 +296,7 @@ class ClusteringVisualizer:
             
             output_path = self.output_dir / 'clustering_dbscan_heatmap.png'
             plt.savefig(output_path, dpi=self.DPI, bbox_inches='tight')
-            logger.info(f"DBSCAN heatmap with map background saved: {output_path}")
+            logger.info(f"DBSCAN heatmap saved: {output_path}")
             
             plt.close()
             return output_path
@@ -266,12 +317,22 @@ class ClusteringVisualizer:
             cluster_names = self.assign_cluster_names(self.hdbscan_data, 'HDBSCAN')
             
             fig, ax = plt.subplots(figsize=(14, 10), dpi=self.DPI)
-            
-            from pyproj import Transformer
-            transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
-            x, y = transformer.transform(df['longitude'].values, df['latitude'].values)
-            df['x_mercator'] = x
-            df['y_mercator'] = y
+
+            heat = ax.hexbin(
+                df['longitude'],
+                df['latitude'],
+                gridsize=60,
+                cmap='YlOrRd',
+                mincnt=1,
+                alpha=0.42,
+                extent=(
+                    self.ASIA_BOUNDS['min_lon'],
+                    self.ASIA_BOUNDS['max_lon'],
+                    self.ASIA_BOUNDS['min_lat'],
+                    self.ASIA_BOUNDS['max_lat'],
+                ),
+                zorder=1,
+            )
             
             noise_mask = df['cluster_id'].astype(int) == -1
             noise_data = df[noise_mask]
@@ -301,8 +362,8 @@ class ClusteringVisualizer:
                     
                     for i, (_, row) in enumerate(cluster_data.iterrows()):
                         ax.scatter(
-                            row['x_mercator'],
-                            row['y_mercator'],
+                            row['longitude'],
+                            row['latitude'],
                             s=sizes_values[i],
                             c=[cmap(norm(idx))],
                             alpha=alpha_values[i],
@@ -314,8 +375,8 @@ class ClusteringVisualizer:
             if not exclude_noise and len(noise_data) > 0:
                 sizes = (noise_data['magnitude'] - noise_data['magnitude'].min() + 1) * 30
                 ax.scatter(
-                    noise_data['x_mercator'],
-                    noise_data['y_mercator'],
+                    noise_data['longitude'],
+                    noise_data['latitude'],
                     s=sizes,
                     c='gray',
                     marker='o',
@@ -325,17 +386,23 @@ class ClusteringVisualizer:
                     zorder=5
                 )
             
-            try:
-                ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, 
-                               attribution_size=8, zorder=1)
-            except Exception as e:
-                logger.warning(f"Could not add map tiles: {e}")
-            
+            self._apply_asia_extent(ax)
+            self._add_basemap(ax)
+            ax.set_facecolor('#dbeafe')
+            ax.grid(True, color='white', linewidth=0.6, alpha=0.55)
             ax.set_xlabel('Longitude', fontsize=self.FONT_SIZE + 2, fontweight='bold')
             ax.set_ylabel('Latitude', fontsize=self.FONT_SIZE + 2, fontweight='bold')
-            ax.set_title(f'HDBSCAN Earthquake Clustering Heatmap - Indonesia {title_suffix}\n(Size: Magnitude, Transparency: Probability, Background: OpenStreetMap)', 
-                        fontsize=self.FONT_SIZE + 3, fontweight='bold', pad=20)
-            
+            ax.set_title(
+                f'HDBSCAN Earthquake Clustering Heatmap - Asia {title_suffix}\n'
+                f'(Size: Magnitude, Transparency: Probability, Geo Heatmap + Basemap)',
+                fontsize=self.FONT_SIZE + 3,
+                fontweight='bold',
+                pad=20,
+            )
+
+            cbar = plt.colorbar(heat, ax=ax, fraction=0.03, pad=0.02)
+            cbar.set_label('Event density', fontsize=self.FONT_SIZE)
+
             plt.tight_layout()
             
             if exclude_noise:
@@ -344,7 +411,7 @@ class ClusteringVisualizer:
                 output_path = self.output_dir / 'clustering_hdbscan_heatmap.png'
             
             plt.savefig(output_path, dpi=self.DPI, bbox_inches='tight')
-            logger.info(f"HDBSCAN heatmap with map background saved: {output_path}")
+            logger.info(f"HDBSCAN heatmap saved: {output_path}")
             
             plt.close()
             return output_path
@@ -369,9 +436,33 @@ class ClusteringVisualizer:
             
             m = folium.Map(
                 location=[center_lat, center_lon],
-                zoom_start=5,
+                zoom_start=4,
                 tiles='OpenStreetMap'
             )
+
+            m.fit_bounds([
+                [self.ASIA_BOUNDS['min_lat'], self.ASIA_BOUNDS['min_lon']],
+                [self.ASIA_BOUNDS['max_lat'], self.ASIA_BOUNDS['max_lon']],
+            ])
+
+            folium.TileLayer('CartoDB positron', name='CartoDB Positron', overlay=False).add_to(m)
+
+            heat_data = []
+            for _, row in df.iterrows():
+                heat_data.append([
+                    float(row['latitude']),
+                    float(row['longitude']),
+                    max(float(row['magnitude']), 0.1)
+                ])
+
+            HeatMap(
+                heat_data,
+                radius=16,
+                blur=12,
+                min_opacity=0.3,
+                name='Earthquake Heatmap',
+                gradient={0.2: '#2b83ba', 0.45: '#abdda4', 0.7: '#fdae61', 1.0: '#d7191c'},
+            ).add_to(m)
             
             unique_clusters = sorted(df['cluster_id'].unique())
             n_clusters = len(unique_clusters)
@@ -446,9 +537,33 @@ class ClusteringVisualizer:
             
             m = folium.Map(
                 location=[center_lat, center_lon],
-                zoom_start=5,
+                zoom_start=4,
                 tiles='OpenStreetMap'
             )
+
+            m.fit_bounds([
+                [self.ASIA_BOUNDS['min_lat'], self.ASIA_BOUNDS['min_lon']],
+                [self.ASIA_BOUNDS['max_lat'], self.ASIA_BOUNDS['max_lon']],
+            ])
+
+            folium.TileLayer('CartoDB positron', name='CartoDB Positron', overlay=False).add_to(m)
+
+            heat_data = []
+            for _, row in df.iterrows():
+                heat_data.append([
+                    float(row['latitude']),
+                    float(row['longitude']),
+                    max(float(row.get('magnitude', 1.0)), 0.1)
+                ])
+
+            HeatMap(
+                heat_data,
+                radius=16,
+                blur=12,
+                min_opacity=0.3,
+                name='Earthquake Heatmap',
+                gradient={0.2: '#2b83ba', 0.45: '#abdda4', 0.7: '#fdae61', 1.0: '#d7191c'},
+            ).add_to(m)
             
             folium.TileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                            attr='Esri',
@@ -604,13 +719,6 @@ class ClusteringVisualizer:
                     fontsize=10,
                     color='#444444'
                 )
-
-            fig.suptitle(
-                'Distribusi Label Risiko',
-                fontsize=self.FONT_SIZE + 10,
-                fontweight='bold',
-                y=0.98
-            )
 
             plt.tight_layout(rect=[0, 0, 1, 0.95])
 

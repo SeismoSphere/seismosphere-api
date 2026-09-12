@@ -83,6 +83,26 @@ services:
     networks:
       - seismo-network
 
+  fastapi:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: seismo_fastapi
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      - ./api:/app/api
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    networks:
+      - seismo-network
+
 volumes:
   postgres-db-volume:
   minio-data:

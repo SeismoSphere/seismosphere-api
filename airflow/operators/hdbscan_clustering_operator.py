@@ -12,7 +12,6 @@ from typing import Dict, Optional, List, Tuple
 
 logger = logging.getLogger(__name__)
 
-
 class HDBSCANEarthquakeClusterer:
     RISK_THRESHOLDS = {
         'LOW': {
