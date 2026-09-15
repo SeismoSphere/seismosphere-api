@@ -12,6 +12,10 @@ class EarthquakeService:
     def __init__(self) -> None:
         self.base_dir = Path(__file__).resolve().parents[2]
         self.data_dir = self.base_dir / "data" / "bigdata"
+        self.excluded_image_names = {
+            "clustering_hdbscan_heatmap_no_noise.png",
+            "clustering_hdbscan_heatmap.png",
+        }
         self.postgres_config = {
             "host": os.getenv("POSTGRES_HOST", "postgres"),
             "port": int(os.getenv("POSTGRES_PORT", "5432")),
@@ -124,6 +128,64 @@ class EarthquakeService:
 
         return available_sources
 
+    def _fetch_risk_distribution_summary(self) -> Optional[Dict[str, Any]]:
+        query = "SELECT scope, total_records, distribution FROM risk_distribution_summary"
+
+        try:
+            with psycopg2.connect(**self.postgres_config) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query)
+                    rows = cur.fetchall()
+        except Exception:
+            return None
+
+        if not rows:
+            return None
+
+        return {
+            scope: {"total_records": total_records, "distribution": distribution}
+            for scope, total_records, distribution in rows
+        }
+
+    def _fetch_classification_split_summary(self) -> Optional[Dict[str, Any]]:
+        query = """
+            SELECT total_samples, train_count, train_percentage, test_count, test_percentage,
+                   train_distribution, test_distribution, updated_at
+            FROM classification_split_summary
+            WHERE run_id = 'latest'
+        """
+
+        try:
+            with psycopg2.connect(**self.postgres_config) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query)
+                    row = cur.fetchone()
+        except Exception:
+            return None
+
+        if not row:
+            return None
+
+        (
+            total_samples, train_count, train_percentage, test_count, test_percentage,
+            train_distribution, test_distribution, updated_at,
+        ) = row
+
+        return {
+            "total_samples": total_samples,
+            "train": {
+                "count": train_count,
+                "percentage": train_percentage,
+                "distribution": train_distribution,
+            },
+            "test": {
+                "count": test_count,
+                "percentage": test_percentage,
+                "distribution": test_distribution,
+            },
+            "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else updated_at,
+        }
+
     def get_summary(self, dataset: str = "processed") -> Dict[str, Any]:
         frame = self._load_dataset(dataset)
 
@@ -162,6 +224,14 @@ class EarthquakeService:
                 .sort("count", descending=True)
                 .to_dicts()
             )
+
+        risk_distribution = self._fetch_risk_distribution_summary()
+        if risk_distribution:
+            summary["risk_distribution"] = risk_distribution
+
+        classification_split = self._fetch_classification_split_summary()
+        if classification_split:
+            summary["classification_split"] = classification_split
 
         return summary
 
@@ -211,13 +281,19 @@ class EarthquakeService:
         dataset: str = "hdbscan",
         limit: Optional[int] = None,
         offset: int = 0,
+        exclude_noise: bool = False,
     ) -> Dict[str, Any]:
         frame = self._load_dataset(dataset)
+
+        if exclude_noise and "cluster_id" in frame.columns:
+            frame = frame.filter(pl.col("cluster_id") != -1)
+
         total_records = frame.height
         page = frame.slice(offset, limit) if limit is not None else frame.slice(offset)
 
         return {
             "dataset": dataset,
+            "exclude_noise": exclude_noise,
             "total_records": total_records,
             "limit": limit,
             "offset": offset,
@@ -239,3 +315,39 @@ class EarthquakeService:
             "total_records": frame.height,
             "items": self._to_records(frame),
         }
+
+    def list_visualization_images(self) -> List[Dict[str, str]]:
+        if not self.data_dir.exists():
+            raise FileNotFoundError(f"Data directory not found: {self.data_dir}")
+
+        image_items: List[Dict[str, str]] = []
+        for image_path in sorted(self.data_dir.glob("*.png")):
+            if image_path.name in self.excluded_image_names:
+                continue
+
+            image_items.append(
+                {
+                    "name": image_path.name,
+                    "title": image_path.stem.replace("_", " ").title(),
+                }
+            )
+
+        return image_items
+
+    def resolve_visualization_image_path(self, image_name: str) -> Path:
+        if image_name in self.excluded_image_names:
+            raise FileNotFoundError("Requested image is not available")
+
+        candidate = (self.data_dir / image_name).resolve()
+        base_resolved = self.data_dir.resolve()
+
+        if base_resolved not in candidate.parents:
+            raise ValueError("Invalid image path")
+
+        if not candidate.exists() or not candidate.is_file():
+            raise FileNotFoundError(f"Image not found: {image_name}")
+
+        if candidate.suffix.lower() != ".png":
+            raise ValueError("Unsupported image type")
+
+        return candidate

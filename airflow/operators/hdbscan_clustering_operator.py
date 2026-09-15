@@ -1,6 +1,7 @@
 import polars as pl
 import pandas as pd
 import logging
+import json
 import psycopg2
 from psycopg2.extras import execute_values
 import numpy as np
@@ -33,7 +34,15 @@ class HDBSCANEarthquakeClusterer:
             'score_min': 6.5
         }
     }
-    
+
+    RING_OF_FIRE_ZONES = [
+        'Indonesia-Philippines Arc',
+        'Philippines-Taiwan Arc',
+        'Japan-Kuril Arc',
+        'Java Trench',
+        'Kamchatka-Aleutian Arc',
+    ]
+
     def __init__(
         self,
         postgres_host: str = 'postgres',
@@ -101,7 +110,7 @@ class HDBSCANEarthquakeClusterer:
             cur = conn.cursor()
             
             query = """
-                SELECT 
+                SELECT
                     id,
                     datetime,
                     latitude,
@@ -113,11 +122,13 @@ class HDBSCANEarthquakeClusterer:
                   AND longitude IS NOT NULL
                   AND magnitude IS NOT NULL
                   AND depth IS NOT NULL
+                  AND seismic_zone IN %s
                 ORDER BY datetime DESC
             """
-            
+
             logger.info(f"Reading earthquake data from PostgreSQL...")
-            cur.execute(query)
+            logger.info(f"  Restricted to Ring of Fire zones: {', '.join(self.RING_OF_FIRE_ZONES)}")
+            cur.execute(query, (tuple(self.RING_OF_FIRE_ZONES),))
             
             columns = [desc[0] for desc in cur.description]
             rows = cur.fetchall()
@@ -588,16 +599,18 @@ class HDBSCANEarthquakeClusterer:
                 cluster_sizes[cluster_id] += 1
             
             risk_labels = []
+            risk_labels_with_cluster = []
             for row in rows:
                 earthquake_id = row[0]
                 magnitude = row[1]
                 depth = row[2]
                 cluster_id = row[3]
                 cluster_size = cluster_sizes.get(cluster_id, 1)
-                
+
                 risk_label = self.assign_risk_level(magnitude, depth, cluster_size)
                 risk_labels.append((risk_label, earthquake_id))
-            
+                risk_labels_with_cluster.append((risk_label, cluster_id))
+
             logger.info(f"Updating {len(risk_labels)} records with risk labels...")
             cursor.executemany(
                 """
@@ -608,17 +621,40 @@ class HDBSCANEarthquakeClusterer:
                 risk_labels
             )
             conn.commit()
-            
+
             logger.info(f"✓ Updated {len(risk_labels)} earthquake records with risk labels")
-            
-            from collections import Counter
-            risk_counts = Counter([item[0] for item in risk_labels])
-            logger.info("\nRISK LEVEL DISTRIBUTION:")
+
+            with_noise_labels = [label for label, _ in risk_labels_with_cluster]
+            without_noise_labels = [label for label, cluster_id in risk_labels_with_cluster if cluster_id != -1]
+
+            risk_dist_with_noise = self._build_risk_distribution(with_noise_labels)
+            risk_dist_without_noise = self._build_risk_distribution(without_noise_labels)
+
+            logger.info("\nRISK LEVEL DISTRIBUTION (WITH NOISE):")
             for risk_level in ['VERY_HIGH', 'HIGH', 'MEDIUM', 'LOW']:
-                count = risk_counts.get(risk_level, 0)
-                percentage = (count / len(risk_labels)) * 100 if risk_labels else 0
-                logger.info(f"  {risk_level:12s}: {count:6d} earthquakes ({percentage:5.1f}%)")
-            
+                stats = risk_dist_with_noise[risk_level]
+                logger.info(f"  {risk_level:12s}: {stats['count']:6d} earthquakes ({stats['percentage']:5.1f}%)")
+
+            logger.info("\nRISK LEVEL DISTRIBUTION (WITHOUT NOISE):")
+            for risk_level in ['VERY_HIGH', 'HIGH', 'MEDIUM', 'LOW']:
+                stats = risk_dist_without_noise[risk_level]
+                logger.info(f"  {risk_level:12s}: {stats['count']:6d} earthquakes ({stats['percentage']:5.1f}%)")
+
+            self.save_risk_distribution_to_postgres(
+                cursor,
+                conn,
+                scope='with_noise',
+                total_records=len(with_noise_labels),
+                distribution=risk_dist_with_noise,
+            )
+            self.save_risk_distribution_to_postgres(
+                cursor,
+                conn,
+                scope='without_noise',
+                total_records=len(without_noise_labels),
+                distribution=risk_dist_without_noise,
+            )
+
             return True
             
         except Exception as e:
@@ -634,7 +670,62 @@ class HDBSCANEarthquakeClusterer:
                 cursor.close()
             if conn:
                 conn.close()
-    
+
+    @staticmethod
+    def _build_risk_distribution(labels: List[str]) -> Dict[str, Dict[str, float]]:
+        from collections import Counter
+
+        counts = Counter(labels)
+        total = len(labels)
+
+        distribution = {}
+        for risk_level in ['VERY_HIGH', 'HIGH', 'MEDIUM', 'LOW']:
+            count = counts.get(risk_level, 0)
+            percentage = (count / total) * 100 if total else 0
+            distribution[risk_level] = {'count': count, 'percentage': round(percentage, 2)}
+
+        return distribution
+
+    def save_risk_distribution_to_postgres(
+        self,
+        cursor,
+        conn,
+        scope: str,
+        total_records: int,
+        distribution: Dict[str, Dict[str, float]],
+    ) -> bool:
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS risk_distribution_summary (
+                    id SERIAL PRIMARY KEY,
+                    scope VARCHAR(20) NOT NULL UNIQUE,
+                    total_records INTEGER NOT NULL,
+                    distribution JSONB NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute(
+                """
+                INSERT INTO risk_distribution_summary (scope, total_records, distribution)
+                VALUES (%s, %s, %s::jsonb)
+                ON CONFLICT (scope) DO UPDATE SET
+                    total_records = EXCLUDED.total_records,
+                    distribution = EXCLUDED.distribution,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (scope, total_records, json.dumps(distribution)),
+            )
+            conn.commit()
+
+            logger.info(f"✓ Risk distribution summary saved ({scope})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving risk distribution summary ({scope}): {e}")
+            conn.rollback()
+            return False
+
     def run_full_pipeline(self) -> Dict:
         logger.info(f"="*70)
         logger.info(f"EARTHQUAKE CLUSTERING PIPELINE")

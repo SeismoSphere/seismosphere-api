@@ -448,7 +448,73 @@ class EarthquakeClusterClassifier:
         except Exception as e:
             logger.error(f"Error saving models: {e}")
             return False
-    
+
+    def save_train_test_split_to_postgres(self, split_summary: Dict) -> bool:
+        cur = None
+        try:
+            logger.info("Saving train/test split summary to PostgreSQL...")
+
+            if not self.conn:
+                self.connect_postgres()
+
+            cur = self.conn.cursor()
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS classification_split_summary (
+                    id SERIAL PRIMARY KEY,
+                    run_id VARCHAR(20) NOT NULL UNIQUE DEFAULT 'latest',
+                    total_samples INTEGER NOT NULL,
+                    train_count INTEGER NOT NULL,
+                    train_percentage FLOAT NOT NULL,
+                    test_count INTEGER NOT NULL,
+                    test_percentage FLOAT NOT NULL,
+                    train_distribution JSONB NOT NULL,
+                    test_distribution JSONB NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cur.execute(
+                """
+                INSERT INTO classification_split_summary
+                    (run_id, total_samples, train_count, train_percentage,
+                     test_count, test_percentage, train_distribution, test_distribution)
+                VALUES ('latest', %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                ON CONFLICT (run_id) DO UPDATE SET
+                    total_samples = EXCLUDED.total_samples,
+                    train_count = EXCLUDED.train_count,
+                    train_percentage = EXCLUDED.train_percentage,
+                    test_count = EXCLUDED.test_count,
+                    test_percentage = EXCLUDED.test_percentage,
+                    train_distribution = EXCLUDED.train_distribution,
+                    test_distribution = EXCLUDED.test_distribution,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    split_summary['total_samples'],
+                    split_summary['train_count'],
+                    split_summary['train_percentage'],
+                    split_summary['test_count'],
+                    split_summary['test_percentage'],
+                    json.dumps(split_summary['train_distribution']),
+                    json.dumps(split_summary['test_distribution']),
+                )
+            )
+
+            self.conn.commit()
+            logger.info("✓ Train/test split summary saved to PostgreSQL")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving train/test split summary: {e}")
+            if self.conn:
+                self.conn.rollback()
+            return False
+
+        finally:
+            if cur:
+                cur.close()
+
     def save_results_to_postgres(self, rf_results: Dict, xgb_results: Dict) -> bool:
         try:
             logger.info("Saving results to PostgreSQL...")
@@ -531,18 +597,33 @@ class EarthquakeClusterClassifier:
             logger.info(f"  Train set: {len(X_train):,} samples (80%)")
             logger.info(f"  Test set:  {len(X_test):,} samples (20%)")
             
+            train_distribution: Dict[str, Dict[str, float]] = {}
             logger.info(f"\n  Class distribution in TRAINING set:")
             for i, class_name in enumerate(self.label_encoder.classes_):
-                train_count = np.sum(y_train == i)
-                train_pct = (train_count / len(y_train)) * 100
+                train_count = int(np.sum(y_train == i))
+                train_pct = (train_count / len(y_train)) * 100 if len(y_train) else 0
+                train_distribution[class_name] = {'count': train_count, 'percentage': round(train_pct, 2)}
                 logger.info(f"    {class_name:12s}: {train_count:6d} ({train_pct:5.1f}%)")
-            
+
+            test_distribution: Dict[str, Dict[str, float]] = {}
             logger.info(f"\n  Class distribution in TEST set:")
             for i, class_name in enumerate(self.label_encoder.classes_):
-                test_count = np.sum(y_test == i)
-                test_pct = (test_count / len(y_test)) * 100
+                test_count = int(np.sum(y_test == i))
+                test_pct = (test_count / len(y_test)) * 100 if len(y_test) else 0
+                test_distribution[class_name] = {'count': test_count, 'percentage': round(test_pct, 2)}
                 logger.info(f"    {class_name:12s}: {test_count:6d} ({test_pct:5.1f}%)")
-            
+
+            split_summary = {
+                'total_samples': int(len(X)),
+                'train_count': int(len(X_train)),
+                'train_percentage': round(len(X_train) / len(X) * 100, 2),
+                'test_count': int(len(X_test)),
+                'test_percentage': round(len(X_test) / len(X) * 100, 2),
+                'train_distribution': train_distribution,
+                'test_distribution': test_distribution,
+            }
+            self.save_train_test_split_to_postgres(split_summary)
+
             logger.info("\n[STEP 4/5] Training classification models...")
             self.train_random_forest(X_train, y_train)
             self.train_xgboost(X_train, y_train)
