@@ -8,7 +8,9 @@ sys.path.insert(0, '/opt/airflow/operators')
 from polars_ingestion_operator import PolarsEarthquakeIngestor
 from polars_preprocessing_operator import preprocess_earthquakes
 from hdbscan_clustering_operator import run_earthquake_clustering
-from hdbscan_visualization_operator import run_visualization_task
+# cluster_visualization is disabled: the PNG/folium map generation is slow and
+# redundant now that the frontend renders its own visualizations from the API.
+# from hdbscan_visualization_operator import run_visualization_task
 from classification_operator import run_classification_task
 
 default_args = {
@@ -97,16 +99,16 @@ with DAG(
         provide_context=True
     )
     
-    task_visualization = PythonOperator(
-        task_id='cluster_visualization',
-        python_callable=run_visualization_task,
-        provide_context=True
-    )
-    
+    # task_visualization = PythonOperator(
+    #     task_id='cluster_visualization',
+    #     python_callable=run_visualization_task,
+    #     provide_context=True
+    # )
+
     task_classification = PythonOperator(
         task_id='cluster_classification',
         python_callable=run_classification_task,
         provide_context=True
     )
 
-    task_ingestion >> task_preprocessing >> task_clustering >> task_visualization >> task_classification
+    task_ingestion >> task_preprocessing >> task_clustering >> task_classification

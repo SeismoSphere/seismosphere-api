@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -12,10 +11,6 @@ class EarthquakeService:
     def __init__(self) -> None:
         self.base_dir = Path(__file__).resolve().parents[2]
         self.data_dir = self.base_dir / "data" / "bigdata"
-        self.excluded_image_names = {
-            "clustering_hdbscan_heatmap_no_noise.png",
-            "clustering_hdbscan_heatmap.png",
-        }
         self.postgres_config = {
             "host": os.getenv("POSTGRES_HOST", "postgres"),
             "port": int(os.getenv("POSTGRES_PORT", "5432")),
@@ -88,7 +83,6 @@ class EarthquakeService:
 
         return frame
 
-    @lru_cache(maxsize=4)
     def _load_dataset(self, dataset: str) -> pl.DataFrame:
         table_name = self._resolve_table_name(dataset)
 
@@ -186,6 +180,28 @@ class EarthquakeService:
             "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else updated_at,
         }
 
+    def _fetch_confusion_matrices(self) -> Dict[str, Dict[str, Any]]:
+        query = "SELECT model_name, confusion_matrix, confusion_matrix_labels FROM model_evaluation_results"
+
+        try:
+            with psycopg2.connect(**self.postgres_config) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query)
+                    rows = cur.fetchall()
+        except Exception:
+            return {}
+
+        matrices: Dict[str, Dict[str, Any]] = {}
+        for model_name, confusion_matrix, labels in rows:
+            if confusion_matrix is None:
+                continue
+            matrices[model_name] = {
+                "confusion_matrix": confusion_matrix,
+                "confusion_matrix_labels": labels,
+            }
+
+        return matrices
+
     def get_summary(self, dataset: str = "processed") -> Dict[str, Any]:
         frame = self._load_dataset(dataset)
 
@@ -224,6 +240,38 @@ class EarthquakeService:
                 .sort("count", descending=True)
                 .to_dicts()
             )
+
+        if "datetime" in frame.columns and frame.height > 0:
+            try:
+                yearly_frame = (
+                    frame.with_columns(pl.col("datetime").dt.year().alias("year"))
+                    .group_by("year")
+                    .agg(
+                        [
+                            pl.len().alias("count"),
+                            pl.col("datetime").min().alias("start_date"),
+                            pl.col("datetime").max().alias("end_date"),
+                        ]
+                    )
+                    .sort("year")
+                )
+
+                records_by_year = []
+                for row in yearly_frame.to_dicts():
+                    start_date = row["start_date"]
+                    end_date = row["end_date"]
+                    records_by_year.append(
+                        {
+                            "year": row["year"],
+                            "count": row["count"],
+                            "start_date": start_date.isoformat() if hasattr(start_date, "isoformat") else start_date,
+                            "end_date": end_date.isoformat() if hasattr(end_date, "isoformat") else end_date,
+                        }
+                    )
+
+                summary["records_by_year"] = records_by_year
+            except Exception:
+                pass
 
         risk_distribution = self._fetch_risk_distribution_summary()
         if risk_distribution:
@@ -302,10 +350,18 @@ class EarthquakeService:
 
     def list_model_evaluations(self) -> Dict[str, Any]:
         frame = self._load_dataset("model_evaluation_results")
+        records = self._to_records(frame)
+
+        confusion_matrices = self._fetch_confusion_matrices()
+        for record in records:
+            model_name = record.get("model_name")
+            if model_name in confusion_matrices:
+                record.update(confusion_matrices[model_name])
+
         return {
             "dataset": "model_evaluation_results",
             "total_records": frame.height,
-            "items": self._to_records(frame),
+            "items": records,
         }
 
     def list_cluster_summaries(self) -> Dict[str, Any]:
@@ -315,39 +371,3 @@ class EarthquakeService:
             "total_records": frame.height,
             "items": self._to_records(frame),
         }
-
-    def list_visualization_images(self) -> List[Dict[str, str]]:
-        if not self.data_dir.exists():
-            raise FileNotFoundError(f"Data directory not found: {self.data_dir}")
-
-        image_items: List[Dict[str, str]] = []
-        for image_path in sorted(self.data_dir.glob("*.png")):
-            if image_path.name in self.excluded_image_names:
-                continue
-
-            image_items.append(
-                {
-                    "name": image_path.name,
-                    "title": image_path.stem.replace("_", " ").title(),
-                }
-            )
-
-        return image_items
-
-    def resolve_visualization_image_path(self, image_name: str) -> Path:
-        if image_name in self.excluded_image_names:
-            raise FileNotFoundError("Requested image is not available")
-
-        candidate = (self.data_dir / image_name).resolve()
-        base_resolved = self.data_dir.resolve()
-
-        if base_resolved not in candidate.parents:
-            raise ValueError("Invalid image path")
-
-        if not candidate.exists() or not candidate.is_file():
-            raise FileNotFoundError(f"Image not found: {image_name}")
-
-        if candidate.suffix.lower() != ".png":
-            raise ValueError("Unsupported image type")
-
-        return candidate
