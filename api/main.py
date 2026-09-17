@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers.health import router as health_router
 from api.routers.earthquakes import router as earthquakes_router
+from api.routers.pipeline import router as pipeline_router
 
 app = FastAPI(
     title="SeismoSphere API",
@@ -20,6 +21,7 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(earthquakes_router)
+app.include_router(pipeline_router)
 
 @app.get("/")
 def root() -> dict:

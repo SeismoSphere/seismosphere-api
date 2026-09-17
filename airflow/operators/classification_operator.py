@@ -533,22 +533,40 @@ class EarthquakeClusterClassifier:
                     recall FLOAT NOT NULL,
                     f1_score FLOAT NOT NULL,
                     test_samples INTEGER NOT NULL,
+                    confusion_matrix JSONB,
+                    confusion_matrix_labels JSONB,
                     evaluation_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(model_name)
                 )
             """)
-            
+
+            cur.execute("""
+                ALTER TABLE model_evaluation_results
+                ADD COLUMN IF NOT EXISTS confusion_matrix JSONB,
+                ADD COLUMN IF NOT EXISTS confusion_matrix_labels JSONB
+            """)
+
+            labels = list(self.label_encoder.classes_)
+
             results_data = [
-                ('Random Forest', rf_results['accuracy'], rf_results['precision'],
-                 rf_results['recall'], rf_results['f1_score'], len(rf_results['y_test'])),
-                ('XGBoost', xgb_results['accuracy'], xgb_results['precision'],
-                 xgb_results['recall'], xgb_results['f1_score'], len(xgb_results['y_test']))
+                (
+                    'Random Forest', rf_results['accuracy'], rf_results['precision'],
+                    rf_results['recall'], rf_results['f1_score'], len(rf_results['y_test']),
+                    json.dumps(rf_results['confusion_matrix'].tolist()), json.dumps(labels),
+                ),
+                (
+                    'XGBoost', xgb_results['accuracy'], xgb_results['precision'],
+                    xgb_results['recall'], xgb_results['f1_score'], len(xgb_results['y_test']),
+                    json.dumps(xgb_results['confusion_matrix'].tolist()), json.dumps(labels),
+                ),
             ]
-            
+
             execute_values(
                 cur,
                 """
-                INSERT INTO model_evaluation_results (model_name, accuracy, precision, recall, f1_score, test_samples)
+                INSERT INTO model_evaluation_results
+                    (model_name, accuracy, precision, recall, f1_score, test_samples,
+                     confusion_matrix, confusion_matrix_labels)
                 VALUES %s
                 ON CONFLICT (model_name) DO UPDATE SET
                     accuracy = EXCLUDED.accuracy,
@@ -556,9 +574,12 @@ class EarthquakeClusterClassifier:
                     recall = EXCLUDED.recall,
                     f1_score = EXCLUDED.f1_score,
                     test_samples = EXCLUDED.test_samples,
+                    confusion_matrix = EXCLUDED.confusion_matrix,
+                    confusion_matrix_labels = EXCLUDED.confusion_matrix_labels,
                     evaluation_timestamp = CURRENT_TIMESTAMP
                 """,
-                results_data
+                results_data,
+                template="(%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)",
             )
             
             self.conn.commit()

@@ -91,6 +91,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
+      - AIRFLOW_BASE_URL=http://airflow:8080
+      - AIRFLOW_USERNAME=${AIRFLOW_USERNAME:-admin}
+      - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD:-admin}
+      - AIRFLOW_DAG_ID=master_earthquake_pipeline
     volumes:
       - ./api:/app/api
       - ./data:/app/data
@@ -99,6 +103,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      airflow:
+        condition: service_started
     restart: always
     networks:
       - seismo-network
