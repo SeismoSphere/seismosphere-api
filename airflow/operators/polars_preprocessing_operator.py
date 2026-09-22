@@ -167,29 +167,37 @@ class PolarsEarthquakePreprocessor:
             
             logger.info("   Classifying seismic zones...")
             def classify_zone(lat: float, lon: float) -> str:
-                """Classify earthquake location into seismic zones"""
-                # Pacific Ring of Fire zones
-                if 100 <= lon <= 150:
-                    if -10 <= lat <= 10:
-                        return "Indonesia-Philippines Arc"
-                    elif 10 < lat <= 25:
-                        return "Philippines-Taiwan Arc"
-                    elif 25 < lat <= 45:
-                        return "Japan-Kuril Arc"
-                    elif -10 < lat < -5:
-                        return "Java Trench"
-                elif 90 <= lon < 100:
-                    if -5 <= lat <= 30:
-                        return "Myanmar-Andaman Arc"
-                elif 60 <= lon < 90:
+                """Classify earthquake location into seismic zones.
+
+                Ring of Fire boxes are kept tight to the actual island-arc
+                geography (checked most-specific-first) so they don't spill
+                into inland continental China/Mongolia/Central Asia, which is
+                seismically driven by India-Eurasia collision tectonics
+                (Alpide belt), not Pacific plate subduction. A wide
+                lon[100,150]/lat[25,45] box previously misclassified the
+                Sichuan-Yunnan seismic belt (~100-105E, 26-32N) as
+                "Japan-Kuril Arc" purely by rectangular coincidence.
+                """
+                if 100 <= lon <= 150 and -10 <= lat <= -5:
+                    return "Java Trench"
+                if 100 <= lon <= 150 and -5 < lat <= 10:
+                    return "Indonesia-Philippines Arc"
+                if 115 <= lon <= 150 and 10 < lat <= 25:
+                    return "Philippines-Taiwan Arc"
+                if 122 <= lon <= 150 and 25 < lat <= 46:
+                    return "Japan-Kuril Arc"
+                if lon >= 150 and 30 <= lat <= 55:
+                    return "Kamchatka-Aleutian Arc"
+
+                # Continental collision / other zones (not Ring of Fire)
+                if 90 <= lon < 100 and -5 <= lat <= 30:
+                    return "Myanmar-Andaman Arc"
+                if 60 <= lon < 90:
                     if 20 <= lat <= 45:
                         return "Himalayas Collision Zone"
-                    elif -10 <= lat < 20:
+                    if -10 <= lat < 20:
                         return "Indian Ocean Ridge"
-                elif lon >= 150:
-                    if 30 <= lat <= 55:
-                        return "Kamchatka-Aleutian Arc"
-                
+
                 return "Other Asia Region"
             
             zones = [classify_zone(row[0], row[1]) for row in coords]
