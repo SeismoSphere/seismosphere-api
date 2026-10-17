@@ -8,6 +8,7 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import DBSCAN
 import hdbscan
+from hdbscan.validity import validity_index
 from datetime import datetime
 from typing import Dict, Optional, List, Tuple
 
@@ -256,7 +257,96 @@ class HDBSCANEarthquakeClusterer:
         except Exception as e:
             logger.error(f"Error running HDBSCAN: {e}")
             return False
-    
+
+    def compute_clustering_quality(self) -> Optional[Dict]:
+        try:
+            logger.info("Computing clustering quality (DBCV)...")
+
+            if self.features_scaled is None or self.hdbscan_labels is None:
+                logger.error("Features or HDBSCAN labels not available")
+                return None
+
+            labels = np.asarray(self.hdbscan_labels)
+            n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+            n_noise = int(np.sum(labels == -1))
+            total_records = int(len(labels))
+
+            if n_clusters < 2:
+                logger.warning("Not enough clusters to compute a meaningful DBCV score")
+                return None
+
+            score = float(validity_index(self.features_scaled.astype(np.float64), labels, metric='euclidean'))
+
+            logger.info(
+                f"✓ DBCV score: {score:.4f} "
+                f"({n_clusters} clusters, {n_noise} noise points, {total_records} total)"
+            )
+
+            return {
+                'dbcv_score': score,
+                'n_clusters': n_clusters,
+                'n_noise': n_noise,
+                'total_records': total_records,
+            }
+
+        except Exception as e:
+            logger.error(f"Error computing clustering quality: {e}")
+            return None
+
+    def save_clustering_quality_to_postgres(self, quality: Dict) -> bool:
+        conn = None
+        cursor = None
+        try:
+            conn = self.connect_postgres()
+            if not conn:
+                logger.error("Failed to connect to PostgreSQL for clustering quality")
+                return False
+
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS clustering_quality_summary (
+                    id SERIAL PRIMARY KEY,
+                    algorithm VARCHAR(20) NOT NULL UNIQUE,
+                    dbcv_score FLOAT NOT NULL,
+                    n_clusters INTEGER NOT NULL,
+                    n_noise INTEGER NOT NULL,
+                    total_records INTEGER NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute(
+                """
+                INSERT INTO clustering_quality_summary
+                    (algorithm, dbcv_score, n_clusters, n_noise, total_records)
+                VALUES ('hdbscan', %s, %s, %s, %s)
+                ON CONFLICT (algorithm) DO UPDATE SET
+                    dbcv_score = EXCLUDED.dbcv_score,
+                    n_clusters = EXCLUDED.n_clusters,
+                    n_noise = EXCLUDED.n_noise,
+                    total_records = EXCLUDED.total_records,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (quality['dbcv_score'], quality['n_clusters'], quality['n_noise'], quality['total_records']),
+            )
+
+            conn.commit()
+            logger.info("✓ Clustering quality summary saved to PostgreSQL")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving clustering quality summary: {e}")
+            if conn:
+                conn.rollback()
+            return False
+
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
     def create_cluster_tables(self) -> bool:
         conn = None
         try:
@@ -762,13 +852,20 @@ class HDBSCANEarthquakeClusterer:
             if not self.save_hdbscan_clusters():
                 return {'status': 'FAILED', 'error': 'HDBSCAN save failed'}
             
-            logger.info(f"\nStep 8: Assigning risk labels to earthquakes...")
+            logger.info(f"\nStep 8: Computing clustering quality (DBCV)...")
+            quality = self.compute_clustering_quality()
+            if quality:
+                self.save_clustering_quality_to_postgres(quality)
+            else:
+                logger.warning("Clustering quality computation failed, continuing...")
+
+            logger.info(f"\nStep 9: Assigning risk labels to earthquakes...")
             if not self.update_risk_labels():
                 logger.warning("Risk label assignment failed, continuing...")
-            
-            logger.info(f"\nStep 9: Generating summary statistics...")
+
+            logger.info(f"\nStep 10: Generating summary statistics...")
             summary = self.get_summary_statistics()
-            
+
             logger.info(f"\n" + "="*70)
             logger.info(f"CLUSTERING PIPELINE SUMMARY")
             logger.info(f"="*70)
@@ -779,12 +876,15 @@ class HDBSCANEarthquakeClusterer:
             logger.info(f"\nHDBSCAN Results:")
             logger.info(f"  - Number of clusters: {summary['hdbscan']['n_clusters']}")
             logger.info(f"  - Number of noise points: {summary['hdbscan']['n_noise']}")
+            if quality:
+                logger.info(f"  - DBCV score: {quality['dbcv_score']:.4f}")
             logger.info(f"="*70)
-            
+
             return {
                 'status': 'SUCCESS',
                 'summary': summary,
-                'total_records': summary['total_records']
+                'total_records': summary['total_records'],
+                'clustering_quality': quality,
             }
         
         except Exception as e:

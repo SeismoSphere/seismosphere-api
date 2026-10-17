@@ -202,6 +202,35 @@ class EarthquakeService:
 
         return matrices
 
+    def _fetch_clustering_quality(self) -> Optional[Dict[str, Any]]:
+        query = """
+            SELECT algorithm, dbcv_score, n_clusters, n_noise, total_records, updated_at
+            FROM clustering_quality_summary
+            WHERE algorithm = 'hdbscan'
+        """
+
+        try:
+            with psycopg2.connect(**self.postgres_config) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query)
+                    row = cur.fetchone()
+        except Exception:
+            return None
+
+        if not row:
+            return None
+
+        algorithm, dbcv_score, n_clusters, n_noise, total_records, updated_at = row
+
+        return {
+            "algorithm": algorithm,
+            "dbcv_score": dbcv_score,
+            "n_clusters": n_clusters,
+            "n_noise": n_noise,
+            "total_records": total_records,
+            "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else updated_at,
+        }
+
     def get_summary(self, dataset: str = "processed") -> Dict[str, Any]:
         frame = self._load_dataset(dataset)
 
@@ -280,6 +309,10 @@ class EarthquakeService:
         classification_split = self._fetch_classification_split_summary()
         if classification_split:
             summary["classification_split"] = classification_split
+
+        clustering_quality = self._fetch_clustering_quality()
+        if clustering_quality:
+            summary["clustering_quality"] = clustering_quality
 
         return summary
 
